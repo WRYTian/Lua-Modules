@@ -302,6 +302,52 @@ describe('Standings model round trip', function()
 		assert.are_equal(2, bravoCount)
 	end)
 
+	describe('known matches', function()
+		local MatchGroupUtil = require('Module:MatchGroup/Util')
+
+		local function storeSwissStandings()
+			local function makeSwissOpponent(name, matchId)
+				return {
+					opponent = literal(name),
+					rounds = {{scoreboard = {points = 0, match = {w = 0, d = 0, l = 0}}, specialstatus = '',
+						matchId = matchId, matchOpponentIndex = 1}},
+				}
+			end
+			local standingsTable = StandingsParser.parse(
+				{{roundNumber = 1, started = true, finished = true, title = 'Round 1'}},
+				{makeSwissOpponent('Alpha', 'abc_0001'), makeSwissOpponent('Bravo', 'abc_0002')},
+				{}, 'Swiss Stage', {}, 'swiss', {'full.matchdiff'}
+			)
+			StandingsStorage.run(standingsTable, {saveVars = true})
+		end
+
+		local function matchOf(standings, name)
+			return Array.find(standings.rounds[1].opponents, function(entry)
+				return entry.opponent.name == name
+			end).match
+		end
+
+		after_each(function()
+			---@diagnostic disable-next-line: undefined-field
+			MatchGroupUtil.fetchMatchGroup:revert()
+		end)
+
+		it('uses the known matches and fetches only the ones it does not know', function()
+			local knownMatch = {matchId = 'abc_0001'}
+			local fetchedMatch = {matchId = 'abc_0002'}
+			stub(MatchGroupUtil, 'fetchMatchGroup', {matchesById = {abc_0002 = fetchedMatch}})
+			storeSwissStandings()
+
+			local standings = Standings.getStandingsTable('FakePage', 0, {abc_0001 = knownMatch})
+			---@cast standings -nil
+
+			assert.are_equal(knownMatch, matchOf(standings, 'Alpha'))
+			assert.stub(MatchGroupUtil.fetchMatchGroup).was_not_called()
+			assert.are_equal(fetchedMatch, matchOf(standings, 'Bravo'))
+			assert.stub(MatchGroupUtil.fetchMatchGroup).was_called_with('abc')
+		end)
+	end)
+
 	describe('group standings', function()
 		---@param name string
 		---@param results {w: integer, d: integer, l: integer}[]

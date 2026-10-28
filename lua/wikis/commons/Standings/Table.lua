@@ -71,6 +71,8 @@ function StandingsTable.fromTemplate(frame)
 
 	---@type table<integer, MatchPhase[]>
 	local matchPhasesByRound = {}
+	---@type table<string, MatchGroupUtilMatch>?
+	local importedMatchesById
 	if importScoreFromMatches then
 		local automaticScoreFunction = StandingsParseWiki.makeScoringFunction(tableType, args, overtime)
 
@@ -84,6 +86,10 @@ function StandingsTable.fromTemplate(frame)
 			}
 		)
 		opponents = StandingsTable.mergeOpponentsData(opponents, importedOpponents, importOpponentFromMatches)
+		-- Only the swiss display shows the matches, so the other displays do not need to keep them around
+		if tableType == 'swiss' then
+			importedMatchesById = StandingsTable.matchesById(importedOpponents)
+		end
 	end
 
 	Array.forEach(rounds, function(round)
@@ -105,8 +111,23 @@ function StandingsTable.fromTemplate(frame)
 	return StandingsDisplay{
 		pageName = mw.title.getCurrentTitle().text,
 		standingsIndex = standingsTable.standingsindex,
+		knownMatchesById = importedMatchesById,
 		width = StandingsParseWiki.parseWidth(args),
 	}
+end
+
+---@param opponents StandingTableOpponentData[]
+---@return table<string, MatchGroupUtilMatch>
+function StandingsTable.matchesById(opponents)
+	local matchesById = {}
+	Array.forEach(opponents, function(opponentData)
+		Array.forEach(opponentData.rounds or {}, function(round)
+			Array.forEach(round.matches or {}, function(match)
+				matchesById[match.matchId] = match
+			end)
+		end)
+	end)
+	return matchesById
 end
 
 ---@param manualOpponents StandingTableOpponentData[]

@@ -40,6 +40,7 @@ local Standings = {}
 ---@field additionalStats StandingsAdditionalStat[]
 ---@field package record standingstable
 ---@field package entryRecords standingsentry[]
+---@field package knownMatchesById table<string, MatchGroupUtilMatch>?
 
 ---@class StandingsAdditionalStat
 ---@field id string
@@ -74,8 +75,10 @@ local Standings = {}
 ---Fetches a standings table from a page. Tries to read from page variables before fetching from LPDB.
 ---@param pagename string
 ---@param standingsIndex integer #0-index'd on per page
+---@param knownMatchesById table<string, MatchGroupUtilMatch>? # Matches the caller already has, used instead of
+---fetching them again
 ---@return StandingsModel?
-function Standings.getStandingsTable(pagename, standingsIndex)
+function Standings.getStandingsTable(pagename, standingsIndex, knownMatchesById)
 	local pageNameInCorrectFormat = Page.pageifyLink(pagename)
 	local myPageName = string.gsub(mw.title.getCurrentTitle().text, ' ', '_')
 
@@ -83,7 +86,7 @@ function Standings.getStandingsTable(pagename, standingsIndex)
 		local varData = Variables.varDefault('standings2_' .. standingsIndex)
 		if varData then
 			local standings = Json.parseStringified(varData)
-			return Standings.standingsFromRecord(standings.standings, standings.entries)
+			return Standings.standingsFromRecord(standings.standings, standings.entries, knownMatchesById)
 		end
 	end
 
@@ -100,7 +103,7 @@ function Standings.getStandingsTable(pagename, standingsIndex)
 	if not record then
 		return nil
 	end
-	return Standings.standingsFromRecord(record)
+	return Standings.standingsFromRecord(record, nil, knownMatchesById)
 end
 
 local StandingsMT = {
@@ -129,8 +132,10 @@ local StandingsEntryMT = {
 
 ---@param record standingstable
 ---@param entries standingsentry[]?
+---@param knownMatchesById table<string, MatchGroupUtilMatch>? # Matches the caller already has, used instead of
+---fetching them again
 ---@return StandingsModel
-function Standings.standingsFromRecord(record, entries)
+function Standings.standingsFromRecord(record, entries, knownMatchesById)
 	local standings = {
 		namespace = record.namespace,
 		pageName = record.pagename,
@@ -142,6 +147,7 @@ function Standings.standingsFromRecord(record, entries)
 		additionalStats = record.extradata.additionalStats,
 		record = record,
 		entryRecords = entries,
+		knownMatchesById = knownMatchesById,
 	}
 
 	-- Some properties are derived from other properties and we can calculate them when accessed.
@@ -151,8 +157,10 @@ function Standings.standingsFromRecord(record, entries)
 end
 
 ---@param record standingsentry
+---@param knownMatchesById table<string, MatchGroupUtilMatch>? # The match is fetched when it is not in here
 ---@return StandingsEntryModel
-function Standings.entryFromRecord(record)
+function Standings.entryFromRecord(record, knownMatchesById)
+	local matchId = record.extradata.matchid
 	local entry = {
 		opponent = Opponent.fromLpdbStruct(record),
 		placement = record.placement,
@@ -168,6 +176,7 @@ function Standings.entryFromRecord(record)
 		positionChangeFromPreviousRound = tonumber(record.placementchange),
 		additionalStatsValues = record.extradata.additionalStatsValues or {},
 		matchOpponentIndex = tonumber(record.extradata.matchopponentindex),
+		match = matchId and knownMatchesById and knownMatchesById[matchId] or nil,
 		record = record,
 	}
 
@@ -243,7 +252,9 @@ function Standings.makeRounds(standings)
 		local roundEntries = Array.filter(standingsEntries, function(entry)
 			return tonumber(entry.roundindex) == roundIndex
 		end)
-		local opponents = Array.sortBy(Array.map(roundEntries, Standings.entryFromRecord), Operator.property('position'))
+		local opponents = Array.sortBy(Array.map(roundEntries, function(entryRecord)
+			return Standings.entryFromRecord(entryRecord, standings.knownMatchesById)
+		end), Operator.property('position'))
 		return {
 			round = roundIndex,
 			opponents = opponents,

@@ -81,6 +81,55 @@ describe('Standings Table from template', function()
 		end)
 	end)
 
+	describe('swiss imported matches', function()
+		local MatchGroupUtil = require('Module:MatchGroup/Util')
+		local TeamTemplateMock = require('wikis.commons.Mock.TeamTemplate')
+
+		local function match2Opponent(template, score, placement)
+			return {type = 'team', template = template, score = score, status = 'S', placement = placement,
+				extradata = {}, match2players = {}}
+		end
+
+		local function match2Record(matchId, firstTemplate, secondTemplate)
+			return {match2id = matchId, match2bracketid = 'abc', date = '2024-01-05', dateexact = '1', finished = '1',
+				winner = '1', bestof = '3', extradata = {}, match2bracketdata = {}, match2games = {},
+				match2opponents = {match2Opponent(firstTemplate, 2, 1), match2Opponent(secondTemplate, 0, 2)}}
+		end
+
+		before_each(function()
+			TeamTemplateMock.setUp()
+			---@diagnostic disable-next-line: undefined-field
+			mw.ext.LiquipediaDB.lpdb:revert()
+			stub(mw.ext.LiquipediaDB, 'lpdb', function(tableName)
+				if tableName ~= 'match2' then
+					return {}
+				end
+				return {
+					match2Record('abc_R01-M001', 'heroic', 'tt9 esports 2022'),
+					match2Record('abc_R01-M002', 'wolves esports', 'team liquid'),
+				}
+			end)
+			spy.on(MatchGroupUtil, 'fetchMatchGroup')
+		end)
+
+		after_each(function()
+			TeamTemplateMock.tearDown()
+			---@diagnostic disable-next-line: undefined-field
+			MatchGroupUtil.fetchMatchGroup:revert()
+		end)
+
+		it('shows the imported matches without fetching their match groups again', function()
+			local html = tostring(StandingsTable.fromTemplate{
+				tabletype = 'swiss',
+				round1 = {matches = 'abc_R01-M001,abc_R01-M002'},
+			})
+
+			local _, overviewCount = html:gsub('standings%-match%-overview', '')
+			assert.are_equal(4, overviewCount)
+			assert.spy(MatchGroupUtil.fetchMatchGroup).was_not_called()
+		end)
+	end)
+
 	it('errors on an unknown table type', function()
 		assert.error(function()
 			StandingsTable.fromTemplate{tabletype = 'league'}

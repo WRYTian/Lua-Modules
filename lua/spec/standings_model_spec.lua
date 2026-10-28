@@ -1,4 +1,5 @@
 --- Triple Comment to Enable our LLS Plugin
+-- luacheck: read globals collectgarbage
 describe('Standings model round trip', function()
 	local StandingsParser = require('Module:Standings/Parser')
 	local StandingsStorage = require('Module:Standings/Storage')
@@ -97,6 +98,24 @@ describe('Standings model round trip', function()
 		assert.are_equal(3, charlie.position)
 		assert.are_equal('down', charlie.positionStatus)
 		assert.are_equal(0, charlie.positionChangeFromPreviousRound)
+	end)
+
+	it('releases the entry records once the rounds are built', function()
+		local Json = require('Module:Json')
+		local Variables = require('Module:Variables')
+
+		buildAndFetchStandings() -- stores the standings into page variables
+		local stored = Json.parseStringified(Variables.varDefault('standings2_0'))
+		local entryRecords = setmetatable(Array.map(stored.entries, function(entry) return entry end), {__mode = 'v'})
+		assert.are_equal(6, #entryRecords)
+
+		local standings = Standings.standingsFromRecord(stored.standings, stored.entries)
+		stored.entries = nil
+		assert.are_same({3, 3}, Array.map(standings.rounds, function(round) return #round.opponents end))
+
+		collectgarbage('collect')
+		assert.is_nil(next(entryRecords))
+		assert.are_equal('Bravo', standings.rounds[2].opponents[1].opponent.name)
 	end)
 
 	it('stores group standings as league and reads them back as group', function()
